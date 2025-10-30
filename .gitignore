@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# model / cached data (if you prefer not committing model)
+roberta/
+.roberta_cache/
+.cache/
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# local secrets
+.env

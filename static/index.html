@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game Review Sentiment — Predict with RoBERTa</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg: #0f1724;
+      --card: #0b1220;
+      --muted: #94a3b8;
+      --accent: #7c3aed;
+      --accent-2: #06b6d4;
+      --glass: rgba(255,255,255,0.03);
+      --success: #10b981;
+      --danger: #ef4444;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;color:#e6eef8;background:linear-gradient(180deg,#08111a 0%, #06131b 100%);}
+    .wrap{max-width:920px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+    .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px}
+    h1{margin:0;font-size:20px}
+    p.lead{margin:4px 0 0;color:var(--muted);font-size:13px}
+    .card{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 6px 22px rgba(2,6,23,0.7);}
+    .input-area{margin-top:6px;display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start}
+    textarea{width:100%;min-height:200px;resize:vertical;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));color:#e6eef8;font-size:15px;line-height:1.5}
+    .side{display:flex;flex-direction:column;gap:12px}
+    .meta{background:var(--glass);padding:12px;border-radius:10px;color:var(--muted);font-size:13px}
+    .btn{display:inline-flex;align-items:center;gap:10px;border:0;padding:12px 16px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn-primary{background:linear-gradient(90deg,var(--accent),#5b21b6);color:white}
+    .btn-disabled{opacity:0.55;cursor:not-allowed}
+    .small{font-size:13px;color:var(--muted)}
+    .result{margin-top:18px;padding:14px;border-radius:12px;background:linear-gradient(180deg, rgba(0,0,0,0.18), rgba(255,255,255,0.02));display:flex;align-items:center;justify-content:space-between}
+    .result .label{font-weight:700;font-size:16px}
+    .score{font-size:14px;color:var(--muted)}
+    .positive{color:var(--success)}
+    .negative{color:var(--danger)}
+    footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+    @media (max-width:880px){ .input-area{grid-template-columns:1fr;} .side{order:2} }
+    .spinner{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.12);border-top-color:white;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    pre.debug { white-space: pre-wrap; word-break: break-word; color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">SR</div>
+      <div>
+        <h1>Sentiment Reader — Game Review</h1>
+        <p class="lead">Write a short English review (minimum 8 words). The system will predict whether your review is <strong>Positive</strong> or <strong>Negative</strong> using RoBERTa.</p>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="input-area">
+        <div>
+          <label for="review" style="display:block;margin-bottom:8px;font-weight:600">Write your review here</label>
+          <textarea id="review" placeholder="Example: I loved the visuals. The story was compelling. The controls felt clunky at times..." spellcheck="true"></textarea>
+
+          <div style="display:flex;gap:12px;align-items:center;margin-top:10px">
+            <div class="small" id="char-count">Words: 0</div>
+          </div>
+
+          <div id="error" class="small" style="color:#fda4af;margin-top:8px;display:none"></div>
+
+          <div style="margin-top:14px">
+            <button id="predictBtn" class="btn btn-primary btn-disabled" disabled>Predict Sentiment</button>
+            <button id="clearBtn" class="btn" style="background:transparent;color:var(--muted);margin-left:8px">Clear</button>
+          </div>
+        </div>
+
+        <div class="side">
+          <div class="meta">
+            <div style="font-weight:700;margin-bottom:8px">Rules & Tips</div>
+            <ul style="padding-left:18px;margin:0;color:var(--muted)">
+              <li>Enter at least <strong>8 words</strong> for a valid prediction.</li>
+              <li>Use English for the best results.</li>
+              <li>Avoid only short fragments — more context improves accuracy.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div id="resultCard" style="display:none;margin-top:16px">
+        <div class="result">
+          <div>
+            <div class="label" id="labelText">Label</div>
+            <div class="score" id="scoreText">Confidence: 0.00</div>
+          </div>
+          <div id="labelBadge" style="font-weight:700;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,0.02)"></div>
+        </div>
+
+        <div style="margin-top:12px;color:var(--muted);font-size:13px">Debug: <pre class="debug" id="rawResp">-</pre></div>
+      </div>
+    </div>
+
+    <footer>
+      Built with RoBERTa (client calls backend). Ensure your backend allows CORS and exposes <code>/predict</code>.
+    </footer>
+  </div>
+
+  <script>
+    const ta = document.getElementById('review');
+    const charCount = document.getElementById('char-count');
+    const predictBtn = document.getElementById('predictBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const errorBox = document.getElementById('error');
+    const resultCard = document.getElementById('resultCard');
+    const labelText = document.getElementById('labelText');
+    const scoreText = document.getElementById('scoreText');
+    const labelBadge = document.getElementById('labelBadge');
+    const rawResp = document.getElementById('rawResp');
+
+    function countWords(text) {
+      if (!text) return 0;
+      return text.trim().split(/\s+/).filter(Boolean).length;
+    }
+
+    function updateCounts() {
+      const text = ta.value;
+      const w = countWords(text);
+      charCount.textContent = `Words: ${w}`;
+      errorBox.style.display = 'none';
+
+      if (w >= 8) {
+        predictBtn.disabled = false;
+        predictBtn.classList.remove('btn-disabled');
+      } else {
+        predictBtn.disabled = true;
+        if (!predictBtn.classList.contains('btn-disabled')) predictBtn.classList.add('btn-disabled');
+      }
+    }
+
+    ta.addEventListener('input', updateCounts);
+
+    clearBtn.addEventListener('click', () => {
+      ta.value = '';
+      updateCounts();
+      resultCard.style.display = 'none';
+      rawResp.textContent = '-';
+    });
+
+    ta.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        predictBtn.click();
+      }
+    });
+
+    function showError(msg) {
+      errorBox.style.display = 'block';
+      errorBox.textContent = msg;
+      setTimeout(() => { errorBox.style.display = 'none'; }, 4500);
+    }
+
+    function makeSpinner() {
+      const s = document.createElement('span');
+      s.className = 'spinner';
+      return s;
+    }
+
+    // Normalize labels from different shapes: "LABEL_1", "1", 1, "Positive", "POSITIVE" etc.
+    function normalizeLabel(label, raw) {
+      // if label is numeric-like string -> number
+      if (typeof label === 'string' && /^\d+$/.test(label)) label = Number(label);
+      // if label is a number, prefer raw.idx2label if available
+      if (typeof label === 'number') {
+        if (raw && raw.idx2label && typeof raw.idx2label[String(label)] !== 'undefined') {
+          label = raw.idx2label[String(label)];
+        } else {
+          return label === 1 ? 'Positive' : 'Negative';
+        }
+      }
+
+      if (typeof label === 'string') {
+        // handle LABEL_1 / LABEL-1 / label_1
+        const m = label.match(/LABEL[_-]?(\d+)/i);
+        if (m) {
+          return Number(m[1]) === 1 ? 'Positive' : 'Negative';
+        }
+        // common formats (POSITIVE, positive, NEG, Negative)
+        const l = label.toLowerCase();
+        if (l.includes('pos')) return 'Positive';
+        if (l.includes('neg')) return 'Negative';
+        // check raw.idx2label values (in case mapping uses "Positive"/"Negative" already)
+        if (raw && raw.idx2label) {
+          for (const k of Object.keys(raw.idx2label)) {
+            if (String(raw.idx2label[k]).toLowerCase() === l) {
+              return Number(k) === 1 ? 'Positive' : 'Negative';
+            }
+          }
+        }
+        // unknown string but return it so the UI still shows something meaningful
+        return label;
+      }
+
+      // fallback: infer from probs if present
+      if (raw && Array.isArray(raw.probs)) {
+        const probs = raw.probs.map(Number);
+        const idx = probs.indexOf(Math.max(...probs));
+        return idx === 1 ? 'Positive' : 'Negative';
+      }
+      return 'Unknown';
+    }
+
+    predictBtn.addEventListener('click', async () => {
+      const text = ta.value.trim();
+      const wCount = countWords(text);
+      if (wCount < 8) {
+        showError('Please write at least 8 words for a valid prediction.');
+        return;
+      }
+
+      predictBtn.disabled = true;
+      predictBtn.classList.add('btn-disabled');
+      const prevHtml = predictBtn.innerHTML;
+      predictBtn.textContent = 'Predicting... ';
+      predictBtn.appendChild(makeSpinner());
+
+      try {
+        const resp = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error(`Server error: ${resp.status} ${txt}`);
+        }
+
+        const data = await resp.json();
+
+        // Build idx2label map from raw if present (keys may be strings)
+        let idx2label = null;
+        if (data.raw && data.raw.idx2label) {
+          idx2label = {};
+          try {
+            Object.keys(data.raw.idx2label).forEach(k => {
+              idx2label[Number(k)] = data.raw.idx2label[k];
+            });
+          } catch (e) {
+            idx2label = null;
+          }
+        }
+
+        // Determine label robustly (prefer data.label, fallbacks afterwards)
+        let returnedLabel = null;
+        if (typeof data.label !== 'undefined' && data.label !== null) returnedLabel = data.label;
+        else if (typeof data.prediction !== 'undefined' && data.prediction !== null) returnedLabel = data.prediction;
+
+        // Normalize to canonical string (Positive/Negative or friendly)
+        const canonicalLabel = normalizeLabel(returnedLabel, data.raw);
+
+        // Determine confidence score robustly
+        let score = 0;
+        if (typeof data.score !== 'undefined') {
+          score = Number(data.score) || 0;
+        } else if (data.raw && Array.isArray(data.raw.probs)) {
+          const probs = data.raw.probs.map(Number);
+          const idx = probs.indexOf(Math.max(...probs));
+          score = probs[idx] || 0;
+        }
+
+        // Update UI
+        labelText.textContent = canonicalLabel;
+        scoreText.textContent = `Confidence: ${(score * 100).toFixed(1)}%`;
+        rawResp.textContent = JSON.stringify(data, null, 2);
+        resultCard.style.display = 'block';
+
+        // Badge styling
+        if ((canonicalLabel || '').toLowerCase().includes('pos')) {
+          labelText.className = 'label positive';
+          labelBadge.textContent = 'Positive';
+          labelBadge.style.color = 'white';
+          labelBadge.style.background = 'linear-gradient(90deg, rgba(16,185,129,0.12), rgba(16,185,129,0.06))';
+        } else {
+          labelText.className = 'label negative';
+          labelBadge.textContent = 'Negative';
+          labelBadge.style.color = 'white';
+          labelBadge.style.background = 'linear-gradient(90deg, rgba(239,68,68,0.12), rgba(239,68,68,0.06))';
+        }
+
+      } catch (err) {
+        showError('Prediction failed — ' + (err.message || err));
+        console.error(err);
+      } finally {
+        predictBtn.innerHTML = prevHtml;
+        updateCounts();
+      }
+    });
+  </script>
+</body>
+</html>
